@@ -11,7 +11,7 @@
 // Stripe keys are read from .env: any variable named STRIPE_KEY_<LABEL>
 // (e.g. STRIPE_KEY_MYCOMPANY) is tried in order. Use restricted read-only
 // keys (Developers > API keys > Create restricted key, read access to
-// Charges and Checkout Sessions only).
+// Charges, Checkout Sessions and Customers only).
 
 import { mkdirSync, renameSync, existsSync } from "node:fs";
 
@@ -102,12 +102,20 @@ async function lineItems(key: string, charge: any): Promise<{ desc: string; qty:
   });
 }
 
-function formatAddress(billing: any): string {
-  const a = billing?.address;
+function formatAddress(source: any): string {
+  const a = source?.address;
   if (!a) return "";
   return [a.line1, a.line2, [a.postal_code, a.city].filter(Boolean).join(" "), a.state, a.country]
     .filter(Boolean)
     .join("\n");
+}
+
+// Look up a customer by email (exact) or name (substring) for invoices that
+// have no payment yet.
+async function findCustomers(key: string, q: string): Promise<any[]> {
+  const query = q.includes("@") ? `email:'${q.replace(/'/g, "")}'` : `name~'${q.replace(/'/g, "")}'`;
+  const r = await stripeGET(key, `/v1/customers/search?query=${encodeURIComponent(query)}&limit=5`);
+  return r.ok ? (r.body.data ?? []) : [];
 }
 
 async function stripeLookup(q: string): Promise<Response> {
@@ -117,33 +125,55 @@ async function stripeLookup(q: string): Promise<Response> {
   const cleaned = q.trim().replace(/^#/, "");
   if (!cleaned) return json({ error: "Empty query." }, 400);
 
+  // Payment-shaped queries (receipt number, pi_/ch_ id) resolve to a charge:
+  // customer + items + the real payment date. Anything else (an email or a
+  // name) resolves to a Stripe Customer, for raising a fresh invoice that has
+  // no payment behind it yet.
+  const isPaymentQuery = /^(pi|ch|py)_/.test(cleaned) || /^[\d-]+$/.test(cleaned);
+
   for (const { account, key } of STRIPE_ACCOUNTS) {
-    let charge: any = null;
     try {
-      charge = await findCharge(key, cleaned);
+      if (isPaymentQuery) {
+        const charge = await findCharge(key, cleaned);
+        if (!charge) continue;
+        const items = await lineItems(key, charge).catch(() => null);
+        const billing = charge.billing_details || {};
+        const amount = (charge.amount_captured ?? charge.amount) / 100;
+        return json({
+          kind: "charge",
+          account,
+          receiptNumber: charge.receipt_number || "",
+          reference: charge.payment_intent || charge.id,
+          name: billing.name || "",
+          email: billing.email || charge.receipt_email || "",
+          address: formatAddress(billing),
+          paidDate: new Date(charge.created * 1000).toISOString().slice(0, 10),
+          currency: (charge.currency || "gbp").toUpperCase(),
+          amount,
+          items: items ?? [{ desc: charge.description || "", qty: 1, price: amount }],
+        });
+      }
+
+      const customers = await findCustomers(key, cleaned);
+      if (!customers.length) continue;
+      const c = customers[0];
+      return json({
+        kind: "customer",
+        account,
+        matchCount: customers.length,
+        name: c.name || "",
+        email: c.email || "",
+        address: formatAddress(c) || formatAddress(c.shipping),
+      });
     } catch (e) {
       console.error(`Stripe lookup failed on account ${account}:`, e);
       continue;
     }
-    if (!charge) continue;
-
-    const items = await lineItems(key, charge).catch(() => null);
-    const billing = charge.billing_details || {};
-    const amount = (charge.amount_captured ?? charge.amount) / 100;
-    return json({
-      account,
-      receiptNumber: charge.receipt_number || "",
-      reference: charge.payment_intent || charge.id,
-      name: billing.name || "",
-      email: billing.email || charge.receipt_email || "",
-      address: formatAddress(billing),
-      paidDate: new Date(charge.created * 1000).toISOString().slice(0, 10),
-      currency: (charge.currency || "gbp").toUpperCase(),
-      amount,
-      items: items ?? [{ desc: charge.description || "", qty: 1, price: amount }],
-    });
   }
-  return json({ error: `No charge matching "${cleaned}" in ${STRIPE_ACCOUNTS.length} account(s). Receipt numbers only cover the most recent ~300 charges per account; try the pi_/ch_ id from the Stripe dashboard.` }, 404);
+  const hint = isPaymentQuery
+    ? "Receipt numbers only cover the most recent ~300 charges per account; try the pi_/ch_ id from the Stripe dashboard."
+    : "Customer search needs the exact email, or part of the name.";
+  return json({ error: `No match for "${cleaned}" in ${STRIPE_ACCOUNTS.length} account(s). ${hint}` }, 404);
 }
 
 /* ---------------- HTTP ---------------- */

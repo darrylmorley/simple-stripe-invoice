@@ -1,18 +1,22 @@
 # Simple Stripe Invoice
 
-A tiny self-hosted invoice generator for small businesses that sell through
-Stripe. Stripe's emailed receipts don't carry your customer's company details,
-so sooner or later a business customer asks for "a proper invoice with our
-company name on it, for the tax office". This makes that a two-minute job.
+A tiny self-hosted invoice generator for small businesses that use Stripe.
+It covers both directions:
 
-Paste the receipt number from the customer's Stripe receipt, and the customer,
-line items and real payment date fill themselves in. Add their company details,
-export a PDF, done.
+- **Raising an invoice to collect money**: pull the customer from Stripe by
+  email or name, add the items and a due date, export a PDF.
+- **A paid invoice for money already taken**: Stripe's emailed receipts don't
+  carry your customer's company details, so sooner or later a business
+  customer asks for "a proper invoice with our company name on it, for the
+  tax office". Paste the receipt number and the customer, line items and real
+  payment date fill themselves in.
+
+Highlights:
 
 - One HTML file for the UI, one small [Bun](https://bun.sh) server behind it
 - Invoice numbers and saved invoices persist in a plain JSON file on disk
-- Multiple companies, each with its own details, logo and numbering sequence
-- Pulls customer, amounts and the payment date straight from Stripe (read-only)
+- Multiple companies, each with its own details, logo, VAT setup and numbering
+- Pulls customers and payments straight from Stripe (read-only keys)
 - No accounts, no database, no cloud. Your data stays in the folder
 
 ## Quick start
@@ -46,19 +50,22 @@ STRIPE_KEY_MYCOMPANY=rk_live_...
 
 Use a **restricted, read-only** key, not your live secret key: Stripe
 dashboard, Developers, API keys, "Create restricted key", read access to
-Charges and Checkout Sessions only. The key never leaves the server process on
-your machine.
+Charges, Checkout Sessions and Customers only. The key never leaves the server
+process on your machine.
 
 Restart `./serve.sh` and a "Pull from Stripe" box appears at the top of the
 Customer section. It takes:
 
-- the receipt number from the customer's receipt email (like `1234-5678`)
-- or a `pi_` / `ch_` id from the Stripe dashboard
+- a receipt number from a customer's receipt email (like `1234-5678`), or a
+  `pi_` / `ch_` id from the dashboard: fills in the customer, the line items
+  from the Checkout Session, and the date they actually paid, and marks the
+  invoice paid in full
+- an email address or (part of) a name: fills in just that Stripe Customer's
+  details, for raising a brand-new invoice that has no payment behind it yet
 
-and fills in the customer's name, email, address, the line items from the
-Checkout Session, and the date they actually paid. Every configured account is
-searched, so one box covers all your products. Receipt-number lookups scan the
-most recent ~300 charges per account; for older payments use the `pi_` id.
+Every configured account is searched, so one box covers all your products.
+Receipt-number lookups scan the most recent ~300 charges per account; for
+older payments use the `pi_` id.
 
 Give the pulled fields a once-over before exporting. Stripe only knows what the
 customer typed at checkout, and the company name they want on the invoice

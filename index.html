@@ -341,7 +341,7 @@
   <aside class="editor">
     <div class="brand">
       <h1>Invoice Generator</h1>
-      <span>Paid via Stripe</span>
+      <span>simple-stripe-invoice</span>
     </div>
 
     <div class="toolbar">
@@ -447,16 +447,8 @@
           </div>
         </div>
 
-        <div class="row2">
-          <div>
-            <label>Invoice date</label>
-            <input type="date" id="f-date">
-          </div>
-          <div>
-            <label>Payment date</label>
-            <input type="date" id="f-paid-date">
-          </div>
-        </div>
+        <label>Invoice date</label>
+        <input type="date" id="f-date">
       </div>
     </details>
 
@@ -465,9 +457,9 @@
       <summary>Customer</summary>
       <div class="group-body">
         <div id="stripe-pull" hidden>
-          <label>Pull from Stripe (receipt number, pi_ or ch_ id)</label>
+          <label>Pull from Stripe (receipt number or pi_ id for a payment, email or name for a customer)</label>
           <div class="pull-row">
-            <input id="f-stripe-q" placeholder="1234-5678 or pi_3Q1AbC...">
+            <input id="f-stripe-q" placeholder="1234-5678, pi_3Q1AbC... or jane@example.com">
             <button id="btn-stripe-pull">Pull</button>
           </div>
           <p class="hint" id="stripe-pull-status"></p>
@@ -498,15 +490,31 @@
 
     <!-- Payment -->
     <details class="group" open>
-      <summary>Stripe payment</summary>
+      <summary>Payment</summary>
       <div class="group-body">
-        <label>Payment method shown on invoice</label>
-        <input id="f-pay-method" placeholder="Card (Visa ending 4242)">
+        <label>Status</label>
+        <select id="f-status">
+          <option value="unpaid">Unpaid (collecting payment)</option>
+          <option value="paid">Paid in full</option>
+        </select>
 
-        <label>Stripe reference (optional)</label>
-        <input id="f-pay-ref" placeholder="pi_3Q1AbCdEfGhIjKlM">
+        <div id="unpaid-fields">
+          <label>Due date (optional)</label>
+          <input type="date" id="f-due-date">
+          <p class="hint">Put payment instructions (bank details, a payment link) in the
+          customer note under Notes and footer.</p>
+        </div>
 
-        <p class="hint">The invoice is marked paid in full, so there is nothing for the customer to pay.</p>
+        <div id="paid-fields" hidden>
+          <label>Payment date</label>
+          <input type="date" id="f-paid-date">
+
+          <label>Payment method shown on invoice</label>
+          <input id="f-pay-method" placeholder="Card (Visa ending 4242)">
+
+          <label>Stripe reference (optional)</label>
+          <input id="f-pay-ref" placeholder="pi_3Q1AbCdEfGhIjKlM">
+        </div>
       </div>
     </details>
 
@@ -572,8 +580,8 @@
             <tr><td class="lbl">Subtotal</td><td class="val" id="pv-subtotal">£0.00</td></tr>
             <tr id="pv-vat-row" hidden><td class="lbl" id="pv-vat-lbl">VAT</td><td class="val" id="pv-vat">£0.00</td></tr>
             <tr class="grand"><td class="lbl">Total</td><td class="val" id="pv-total">£0.00</td></tr>
-            <tr><td class="lbl">Paid</td><td class="val" id="pv-paid-amount">£0.00</td></tr>
-            <tr class="due"><td class="lbl">Balance due</td><td class="val" id="pv-due">£0.00</td></tr>
+            <tr id="pv-paid-row"><td class="lbl">Paid</td><td class="val" id="pv-paid-amount">£0.00</td></tr>
+            <tr id="pv-due-row" class="due"><td class="lbl">Balance due</td><td class="val" id="pv-due">£0.00</td></tr>
           </tbody>
         </table>
       </div>
@@ -614,7 +622,7 @@
 
   // Fields that belong to one invoice.
   var INVOICE_FIELDS = [
-    "f-number", "f-currency", "f-date", "f-paid-date",
+    "f-number", "f-currency", "f-date", "f-status", "f-due-date", "f-paid-date",
     "f-to-name", "f-to-addr", "f-to-email",
     "f-pay-method", "f-pay-ref", "f-notes"
   ];
@@ -781,13 +789,21 @@
     setText("pv-to-addr", $("f-to-addr").value);
     setText("pv-to-email", $("f-to-email").value);
 
+    // Paid vs unpaid drives the badge, which editor fields show, which date
+    // lines print, and the totals below.
+    var paid = $("f-status").value === "paid";
+    $("paid-fields").hidden = !paid;
+    $("unpaid-fields").hidden = paid;
+    $("pv-paid").hidden = !paid;
+
     // Dates and references, right of the customer block
     var dates = [
       ["Invoice number", $("f-number").value],
       ["Invoice date", longDate($("f-date").value)],
-      ["Payment date", longDate($("f-paid-date").value)],
-      ["Paid by", $("f-pay-method").value],
-      ["Reference", $("f-pay-ref").value]
+      ["Due date", paid ? "" : longDate($("f-due-date").value)],
+      ["Payment date", paid ? longDate($("f-paid-date").value) : ""],
+      ["Paid by", paid ? $("f-pay-method").value : ""],
+      ["Reference", paid ? $("f-pay-ref").value : ""]
     ];
     $("pv-dates").innerHTML = "";
     dates.forEach(function (pair) {
@@ -877,8 +893,11 @@
     setText("pv-vat", money(vatAmount));
     setText("pv-subtotal", money(subtotal));
     setText("pv-total", money(total));
+    $("pv-paid-row").hidden = !paid;
     setText("pv-paid-amount", "-" + money(total));
-    setText("pv-due", money(0));
+    setText("pv-due", money(paid ? 0 : total));
+    // Green "settled" styling only fits a zero balance.
+    $("pv-due-row").className = paid ? "due" : "";
 
     // Footer. The default "not registered" statement makes no sense on a
     // VAT invoice, so it is suppressed once VAT is on (a hand-edited
@@ -1040,6 +1059,8 @@
     INVOICE_FIELDS.forEach(function (f) {
       if (inv[f] !== undefined) $(f).value = inv[f];
     });
+    // Invoices saved before the status field existed were all paid receipts.
+    if (inv["f-status"] === undefined) $("f-status").value = "paid";
     setItems(inv.items);
     render();
   }
@@ -1085,6 +1106,7 @@
     $("f-number").value = number;
     $("f-date").value = todayISO();
     $("f-paid-date").value = todayISO();
+    $("f-status").value = "unpaid";
     setItems(null);
     $("saved-select").value = "";
     render();
@@ -1138,15 +1160,26 @@
         if (res.name) $("f-to-name").value = res.name;
         if (res.address) $("f-to-addr").value = res.address;
         if (res.email) $("f-to-email").value = res.email;
-        if (res.paidDate) $("f-paid-date").value = res.paidDate;
-        $("f-pay-method").value = "Card via Stripe";
-        if (res.receiptNumber) $("f-pay-ref").value = res.receiptNumber;
-        // Only currencies the dropdown knows; anything else stays as-is.
-        if (res.currency && $("f-currency").querySelector('option[value="' + res.currency + '"]')) {
-          $("f-currency").value = res.currency;
+
+        if (res.kind === "customer") {
+          // Just the customer's details: this is a fresh invoice, so the
+          // status, dates and items stay whatever they were.
+          status.textContent = "Customer from the " + res.account + " account"
+            + (res.matchCount > 1 ? " (first of " + res.matchCount + " matches; search by email to narrow down)" : "")
+            + ". Check every field before exporting.";
+        } else {
+          // A charge: the money has already been taken.
+          if (res.paidDate) $("f-paid-date").value = res.paidDate;
+          $("f-status").value = "paid";
+          $("f-pay-method").value = "Card via Stripe";
+          if (res.receiptNumber) $("f-pay-ref").value = res.receiptNumber;
+          // Only currencies the dropdown knows; anything else stays as-is.
+          if (res.currency && $("f-currency").querySelector('option[value="' + res.currency + '"]')) {
+            $("f-currency").value = res.currency;
+          }
+          if (res.items && res.items.length) setItems(res.items);
+          status.textContent = "Payment from the " + res.account + " account. Check every field before exporting.";
         }
-        if (res.items && res.items.length) setItems(res.items);
-        status.textContent = "Pulled from the " + res.account + " account. Check every field before exporting.";
         render();
       })
       .catch(function (e) {
@@ -1209,6 +1242,7 @@
     refreshSavedList();
     $("f-date").value = todayISO();
     $("f-paid-date").value = todayISO();
+    if (!$("f-status").value) $("f-status").value = "unpaid";
     if (!$("f-number").value) $("f-number").value = nextNumber();
     if (!$("f-pay-method").value) $("f-pay-method").value = "Card via Stripe";
     setItems(null);
