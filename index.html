@@ -1221,7 +1221,7 @@
           if (res.paidDate) $("f-paid-date").value = res.paidDate;
           $("f-status").value = "paid";
           $("f-pay-method").value = "Card via Stripe";
-          if (res.receiptNumber) $("f-pay-ref").value = res.receiptNumber;
+          $("f-pay-ref").value = res.receiptNumber || res.reference || "";
           // Only currencies the dropdown knows; anything else stays as-is.
           if (res.currency && $("f-currency").querySelector('option[value="' + res.currency + '"]')) {
             $("f-currency").value = res.currency;
