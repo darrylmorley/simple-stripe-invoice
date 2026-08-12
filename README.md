@@ -73,12 +73,23 @@ record of what you sent, so file those too.
 
 ## VAT / sales tax
 
-The default footer states that no VAT was charged and the business is not VAT
-registered, which suits small non-registered businesses issuing receipts for
-already-paid Stripe charges. The statement is editable per company. If you are
-tax registered, edit it accordingly, and note the totals have no tax line: this
-tool records a payment that already happened, it does not calculate tax.
-Anything beyond that is a question for your accountant, not a README.
+Each company has a **VAT registered** switch under Your business.
+
+Off (the default), invoices carry a "no VAT charged, not VAT registered"
+statement, which suits small non-registered businesses. The statement is
+editable per company.
+
+On, you get a VAT number (printed with your business details), a rate, and a
+choice of what your unit prices mean:
+
+- **VAT-inclusive**: prices are what the customer actually paid (the Stripe
+  amount). The totals show "Includes VAT (20%)" with the VAT carved out of the
+  total, which is the honest way to invoice an already-taken payment.
+- **VAT-exclusive**: prices are net, VAT is added on top as its own line.
+
+Whether your invoice needs anything more than that (reverse charge wording,
+per-line rates, local invoicing rules) is a question for your accountant, not
+a README.
 
 ## Licence
 

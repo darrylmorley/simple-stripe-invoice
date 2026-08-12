@@ -391,6 +391,32 @@
           </div>
         </div>
 
+        <label>VAT registered</label>
+        <select id="f-vat-registered">
+          <option value="">No</option>
+          <option value="yes">Yes</option>
+        </select>
+
+        <div id="vat-fields" hidden>
+          <div class="row2">
+            <div>
+              <label>VAT number</label>
+              <input id="f-vat-number" placeholder="GB123456789">
+            </div>
+            <div>
+              <label>VAT rate %</label>
+              <input id="f-vat-rate" type="number" min="0" step="0.1" placeholder="20">
+            </div>
+          </div>
+          <label>Unit prices are</label>
+          <select id="f-vat-inclusive">
+            <option value="inc">VAT-inclusive (what the customer paid)</option>
+            <option value="ex">VAT-exclusive (net, VAT added on top)</option>
+          </select>
+          <p class="hint">Stripe amounts are what the customer actually paid, so VAT-inclusive
+          back-calculates the VAT from them.</p>
+        </div>
+
         <label>Logo (optional)</label>
         <div class="logo-row">
           <input type="file" id="f-logo" accept="image/*" style="font-size:11px; padding:4px;">
@@ -510,6 +536,7 @@
           <div id="pv-from-name">Your business name</div>
           <div class="from-block" id="pv-from-addr"></div>
           <div class="from-block" id="pv-from-contact"></div>
+          <div class="from-block" id="pv-vat-number"></div>
         </div>
         <div class="right">
           <h2>Invoice</h2>
@@ -543,6 +570,7 @@
         <table>
           <tbody>
             <tr><td class="lbl">Subtotal</td><td class="val" id="pv-subtotal">£0.00</td></tr>
+            <tr id="pv-vat-row" hidden><td class="lbl" id="pv-vat-lbl">VAT</td><td class="val" id="pv-vat">£0.00</td></tr>
             <tr class="grand"><td class="lbl">Total</td><td class="val" id="pv-total">£0.00</td></tr>
             <tr><td class="lbl">Paid</td><td class="val" id="pv-paid-amount">£0.00</td></tr>
             <tr class="due"><td class="lbl">Balance due</td><td class="val" id="pv-due">£0.00</td></tr>
@@ -580,7 +608,8 @@
   // Fields that belong to the business, persisted across all invoices.
   var SETTINGS_FIELDS = [
     "f-from-name", "f-from-addr", "f-from-email", "f-from-phone",
-    "f-from-company-no", "f-vat-note", "f-footer", "f-currency", "f-prefix"
+    "f-from-company-no", "f-vat-note", "f-footer", "f-currency", "f-prefix",
+    "f-vat-registered", "f-vat-number", "f-vat-rate", "f-vat-inclusive"
   ];
 
   // Fields that belong to one invoice.
@@ -734,6 +763,12 @@
     if ($("f-from-phone").value) contact.push($("f-from-phone").value);
     setText("pv-from-contact", contact.join("  ·  "));
 
+    var vatOn = $("f-vat-registered").value === "yes";
+    $("vat-fields").hidden = !vatOn;
+    var vatNo = $("f-vat-number").value;
+    $("pv-vat-number").hidden = !(vatOn && vatNo);
+    setText("pv-vat-number", vatOn && vatNo ? "VAT no. " + vatNo : "");
+
     var logo = $("pv-logo");
     logo.hidden = !logoData;
     if (logoData) logo.src = logoData;
@@ -817,15 +852,42 @@
       body.appendChild(empty);
     }
 
+    // Totals. With VAT off this is just subtotal = total. With VAT on:
+    // inclusive prices mean the lines already contain VAT (Stripe amounts are
+    // what the customer paid), so the VAT is carved out of the total for
+    // display; exclusive prices mean VAT is added on top.
+    var rate = parseFloat($("f-vat-rate").value);
+    if (!isFinite(rate) || rate < 0) rate = 0;
+    var showVAT = vatOn && rate > 0 && subtotal > 0;
+    var total = subtotal, vatAmount = 0;
+
+    if (showVAT) {
+      if ($("f-vat-inclusive").value === "ex") {
+        vatAmount = subtotal * rate / 100;
+        total = subtotal + vatAmount;
+        setText("pv-vat-lbl", "VAT (" + rate + "%)");
+      } else {
+        vatAmount = subtotal - subtotal / (1 + rate / 100);
+        total = subtotal;
+        setText("pv-vat-lbl", "Includes VAT (" + rate + "%)");
+      }
+    }
+
+    $("pv-vat-row").hidden = !showVAT;
+    setText("pv-vat", money(vatAmount));
     setText("pv-subtotal", money(subtotal));
-    setText("pv-total", money(subtotal));
-    setText("pv-paid-amount", "-" + money(subtotal));
+    setText("pv-total", money(total));
+    setText("pv-paid-amount", "-" + money(total));
     setText("pv-due", money(0));
 
-    // Footer
+    // Footer. The default "not registered" statement makes no sense on a
+    // VAT invoice, so it is suppressed once VAT is on (a hand-edited
+    // statement still prints).
     setText("pv-notes", $("f-notes").value);
-    $("pv-vat-note").hidden = !$("f-vat-note").value;
-    setText("pv-vat-note", $("f-vat-note").value);
+    var vatNote = $("f-vat-note").value;
+    if (vatOn && vatNote === DEFAULT_VAT_NOTE) vatNote = "";
+    $("pv-vat-note").hidden = !vatNote;
+    setText("pv-vat-note", vatNote);
 
     var legal = [];
     if ($("f-footer").value) legal.push($("f-footer").value);
@@ -899,6 +961,7 @@
       if (stored && stored[id] !== undefined) $(id).value = stored[id];
       else if (id === "f-currency") $(id).value = "GBP";
       else if (id === "f-prefix") $(id).value = "INV-";
+      else if (id === "f-vat-inclusive") $(id).value = "inc";
       else $(id).value = "";
     });
 
