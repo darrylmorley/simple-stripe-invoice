@@ -1,0 +1,6 @@
+{
+  "name": "simple-stripe-invoice",
+  "devDependencies": {
+    "@types/bun": "^1.3.5"
+  }
+}

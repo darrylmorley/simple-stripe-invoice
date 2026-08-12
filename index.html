@@ -1,0 +1,1170 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invoice Generator</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --line: #e3e5ea;
+    --text: #14161a;
+    --muted: #6b7280;
+    --accent: #1f6feb;
+    --ok: #0f7b47;
+    --ok-bg: #e6f4ec;
+    --radius: 8px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --panel: #1c1f25;
+      --line: #2c313a;
+      --text: #e8eaee;
+      --muted: #9aa1ad;
+      --accent: #4c8dff;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  /* An id selector with its own display rule beats the browser default for
+     [hidden], so make hidden always win. */
+  [hidden] { display: none !important; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app {
+    display: grid;
+    grid-template-columns: 400px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ---------- Editor ---------- */
+
+  .editor {
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    padding: 18px 18px 60px;
+    overflow-y: auto;
+    max-height: 100vh;
+  }
+
+  .brand {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .brand h1 { font-size: 15px; margin: 0; letter-spacing: -0.01em; }
+  .brand span { font-size: 11px; color: var(--muted); }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+
+  button {
+    font: inherit;
+    font-size: 12.5px;
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--text);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.link {
+    border: 0; background: none; color: var(--accent);
+    padding: 2px 0; font-size: 12px;
+  }
+  button.tiny {
+    padding: 0; width: 26px; height: 26px; line-height: 1;
+    color: var(--muted); font-size: 15px;
+  }
+
+  details.group {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    margin-bottom: 10px;
+    background: var(--panel);
+  }
+  details.group > summary {
+    cursor: pointer;
+    padding: 10px 12px;
+    font-weight: 600;
+    font-size: 12.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    list-style: none;
+  }
+  details.group > summary::-webkit-details-marker { display: none; }
+  details.group > summary::before { content: "▸ "; }
+  details.group[open] > summary::before { content: "▾ "; }
+  .group-body { padding: 0 12px 12px; }
+
+  label { display: block; font-size: 11.5px; color: var(--muted); margin: 8px 0 3px; }
+
+  input, textarea, select {
+    font: inherit;
+    font-size: 13px;
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+  }
+  input:focus, textarea:focus, select:focus {
+    outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    outline-offset: -1px;
+    border-color: var(--accent);
+  }
+  textarea { resize: vertical; min-height: 60px; }
+
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  /* line item editor */
+  .items-head, .item {
+    display: grid;
+    grid-template-columns: 1fr 52px 78px 26px;
+    gap: 6px;
+    align-items: center;
+  }
+  .items-head { font-size: 11px; color: var(--muted); margin: 8px 0 4px; }
+  .item { margin-bottom: 6px; }
+  .item input { padding: 5px 7px; }
+
+  .hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  .pull-row { display: flex; gap: 6px; }
+  .pull-row input { flex: 1; }
+  #stripe-pull { padding-bottom: 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+
+  .logo-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-top: 6px; }
+  .logo-row img { max-height: 34px; max-width: 110px; }
+  .logo-row button { white-space: nowrap; }
+
+  /* ---------- Preview ---------- */
+
+  .preview-wrap {
+    padding: 24px;
+    overflow-y: auto;
+    max-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+  }
+
+  .sheet {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 16mm 16mm 14mm;
+    background: #fff;
+    color: #14161a;
+    box-shadow: 0 2px 20px rgba(0,0,0,.14);
+    border-radius: 2px;
+    font-size: 11pt;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sheet h2 {
+    margin: 0;
+    font-size: 26pt;
+    font-weight: 300;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #14161a;
+  }
+
+  .sheet-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 20px;
+    padding-bottom: 14px;
+    border-bottom: 2px solid #14161a;
+  }
+  .sheet-head .right { text-align: right; }
+  #pv-logo { max-height: 78px; max-width: 200px; display: block; margin-bottom: 10px; }
+  #pv-from-name { font-weight: 700; font-size: 13pt; }
+  .from-block { font-size: 9.5pt; color: #4b5563; white-space: pre-line; }
+
+  .paid-badge {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 4px 12px;
+    border: 1.5px solid var(--ok);
+    color: var(--ok);
+    background: var(--ok-bg);
+    border-radius: 4px;
+    font-size: 10pt;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    margin-top: 18px;
+  }
+  .meta h3 {
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #6b7280;
+    margin: 0 0 4px;
+    font-weight: 600;
+  }
+  .meta .to { max-width: 55%; }
+  .meta .to .name { font-weight: 700; }
+  .meta .to .addr { font-size: 9.5pt; color: #4b5563; white-space: pre-line; }
+  .meta .dates { text-align: right; font-size: 9.5pt; }
+  .meta .dates div { margin-bottom: 2px; }
+  .meta .dates b { color: #6b7280; font-weight: 600; }
+
+  table.items {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 22px;
+    font-size: 10pt;
+  }
+  table.items th {
+    text-align: left;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #6b7280;
+    border-bottom: 1px solid #14161a;
+    padding: 0 0 6px;
+  }
+  table.items td {
+    padding: 9px 0;
+    border-bottom: 1px solid #e5e7eb;
+    vertical-align: top;
+  }
+  table.items .num { text-align: right; white-space: nowrap; width: 90px; }
+  table.items .qty { text-align: right; white-space: nowrap; width: 55px; }
+  table.items .desc small { display: block; color: #6b7280; font-size: 8.5pt; }
+
+  .totals { margin-top: 14px; display: flex; justify-content: flex-end; }
+  .totals table { border-collapse: collapse; min-width: 250px; font-size: 10pt; }
+  .totals td { padding: 4px 0; }
+  .totals td.lbl { color: #4b5563; padding-right: 24px; }
+  .totals td.val { text-align: right; white-space: nowrap; }
+  .totals tr.grand td {
+    border-top: 2px solid #14161a;
+    padding-top: 8px;
+    font-size: 13pt;
+    font-weight: 700;
+  }
+  .totals tr.due td { color: var(--ok); font-weight: 600; }
+
+  .sheet-foot {
+    margin-top: auto;
+    padding-top: 20px;
+    font-size: 9pt;
+    color: #4b5563;
+  }
+  .note-block { white-space: pre-line; margin-bottom: 12px; }
+  .vat-note {
+    padding: 8px 10px;
+    background: #f4f5f7;
+    border-left: 3px solid #9aa1ad;
+    border-radius: 2px;
+    font-size: 8.5pt;
+    color: #4b5563;
+    margin-bottom: 12px;
+  }
+  .legal {
+    border-top: 1px solid #e5e7eb;
+    padding-top: 8px;
+    font-size: 8pt;
+    color: #6b7280;
+    text-align: center;
+    white-space: pre-line;
+  }
+
+  .empty-row td { color: #9aa1ad; font-style: italic; }
+
+  /* ---------- Print ---------- */
+
+  @page { size: A4; margin: 12mm; }
+
+  @media print {
+    body { background: #fff; }
+    .app { display: block; }
+    .editor { display: none !important; }
+    .preview-wrap {
+      display: block; padding: 0; overflow: visible; max-height: none;
+    }
+    .sheet {
+      width: auto; min-height: 0; padding: 0;
+      box-shadow: none; border-radius: 0;
+    }
+    .paid-badge, .vat-note, table.items th, .totals tr.grand td {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    /* Keep long invoices readable across pages. */
+    table.items thead { display: table-header-group; }
+    table.items tr, .totals, .sheet-foot { break-inside: avoid; }
+  }
+
+  @media (max-width: 1100px) {
+    .app { grid-template-columns: 1fr; }
+    .editor { max-height: none; border-right: 0; border-bottom: 1px solid var(--line); }
+    .preview-wrap { max-height: none; }
+    .sheet { width: 100%; min-height: 0; padding: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============ EDITOR ============ -->
+  <aside class="editor">
+    <div class="brand">
+      <h1>Invoice Generator</h1>
+      <span>Paid via Stripe</span>
+    </div>
+
+    <div class="toolbar">
+      <button class="primary" id="btn-pdf">Export PDF</button>
+      <button id="btn-save">Save</button>
+      <button id="btn-new">New</button>
+    </div>
+
+    <label for="saved-select">Saved invoices</label>
+    <div style="display:flex; gap:6px;">
+      <select id="saved-select"><option value="">Nothing saved yet</option></select>
+      <button id="btn-delete" title="Delete selected">🗑</button>
+    </div>
+
+    <!-- Your business -->
+    <details class="group" open>
+      <summary>Your business</summary>
+      <div class="group-body">
+        <label>Invoicing as</label>
+        <select id="f-profile"></select>
+
+        <label>Business name</label>
+        <input id="f-from-name" placeholder="Acme Ltd">
+
+        <label>Address and contact (one per line)</label>
+        <textarea id="f-from-addr" placeholder="1 Example Street&#10;Town&#10;AB1 2CD&#10;United Kingdom"></textarea>
+
+        <div class="row2">
+          <div>
+            <label>Email</label>
+            <input id="f-from-email" placeholder="hello@example.com">
+          </div>
+          <div>
+            <label>Phone (optional)</label>
+            <input id="f-from-phone">
+          </div>
+        </div>
+
+        <div class="row2">
+          <div>
+            <label>Company number (optional)</label>
+            <input id="f-from-company-no" placeholder="Registered in England &amp; Wales no. 12345678">
+          </div>
+          <div>
+            <label>Invoice number prefix</label>
+            <input id="f-prefix" placeholder="INV-">
+          </div>
+        </div>
+
+        <label>Logo (optional)</label>
+        <div class="logo-row">
+          <input type="file" id="f-logo" accept="image/*" style="font-size:11px; padding:4px;">
+          <img id="logo-preview" alt="" hidden>
+          <button class="link" id="btn-logo-clear" hidden>Remove</button>
+        </div>
+
+        <p class="hint">Saved in this browser and reused on every invoice.</p>
+      </div>
+    </details>
+
+    <!-- Invoice details -->
+    <details class="group" open>
+      <summary>Invoice details</summary>
+      <div class="group-body">
+        <div class="row2">
+          <div>
+            <label>Invoice number</label>
+            <input id="f-number" placeholder="INV-0001">
+          </div>
+          <div>
+            <label>Currency</label>
+            <select id="f-currency">
+              <option value="GBP">GBP £</option>
+              <option value="EUR">EUR €</option>
+              <option value="USD">USD $</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row2">
+          <div>
+            <label>Invoice date</label>
+            <input type="date" id="f-date">
+          </div>
+          <div>
+            <label>Payment date</label>
+            <input type="date" id="f-paid-date">
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <!-- Customer -->
+    <details class="group" open>
+      <summary>Customer</summary>
+      <div class="group-body">
+        <div id="stripe-pull" hidden>
+          <label>Pull from Stripe (receipt number, pi_ or ch_ id)</label>
+          <div class="pull-row">
+            <input id="f-stripe-q" placeholder="1234-5678 or pi_3Q1AbC...">
+            <button id="btn-stripe-pull">Pull</button>
+          </div>
+          <p class="hint" id="stripe-pull-status"></p>
+        </div>
+
+        <label>Name or company</label>
+        <input id="f-to-name" placeholder="Jane Smith">
+
+        <label>Address (optional, one per line)</label>
+        <textarea id="f-to-addr"></textarea>
+
+        <label>Email (optional)</label>
+        <input id="f-to-email">
+      </div>
+    </details>
+
+    <!-- Items -->
+    <details class="group" open>
+      <summary>Items</summary>
+      <div class="group-body">
+        <div class="items-head">
+          <span>Description</span><span>Qty</span><span>Unit price</span><span></span>
+        </div>
+        <div id="items"></div>
+        <button class="link" id="btn-add-item">+ Add line</button>
+      </div>
+    </details>
+
+    <!-- Payment -->
+    <details class="group" open>
+      <summary>Stripe payment</summary>
+      <div class="group-body">
+        <label>Payment method shown on invoice</label>
+        <input id="f-pay-method" placeholder="Card (Visa ending 4242)">
+
+        <label>Stripe reference (optional)</label>
+        <input id="f-pay-ref" placeholder="pi_3Q1AbCdEfGhIjKlM">
+
+        <p class="hint">The invoice is marked paid in full, so there is nothing for the customer to pay.</p>
+      </div>
+    </details>
+
+    <!-- Notes -->
+    <details class="group">
+      <summary>Notes and footer</summary>
+      <div class="group-body">
+        <label>Note to customer (optional)</label>
+        <textarea id="f-notes" placeholder="Thanks for your business."></textarea>
+
+        <label>VAT statement</label>
+        <input id="f-vat-note">
+
+        <label>Footer line (optional)</label>
+        <input id="f-footer" placeholder="Acme Ltd · acme.example">
+      </div>
+    </details>
+  </aside>
+
+  <!-- ============ PREVIEW ============ -->
+  <main class="preview-wrap">
+    <div class="sheet" id="sheet">
+
+      <div class="sheet-head">
+        <div class="left">
+          <img id="pv-logo" alt="" hidden>
+          <div id="pv-from-name">Your business name</div>
+          <div class="from-block" id="pv-from-addr"></div>
+          <div class="from-block" id="pv-from-contact"></div>
+        </div>
+        <div class="right">
+          <h2>Invoice</h2>
+          <div class="paid-badge" id="pv-paid">Paid in full</div>
+        </div>
+      </div>
+
+      <div class="meta">
+        <div class="to">
+          <h3>Billed to</h3>
+          <div class="name" id="pv-to-name">Customer</div>
+          <div class="addr" id="pv-to-addr"></div>
+          <div class="addr" id="pv-to-email"></div>
+        </div>
+        <div class="dates" id="pv-dates"></div>
+      </div>
+
+      <table class="items">
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th class="qty" style="text-align:right">Qty</th>
+            <th class="num" style="text-align:right">Unit price</th>
+            <th class="num" style="text-align:right">Amount</th>
+          </tr>
+        </thead>
+        <tbody id="pv-items"></tbody>
+      </table>
+
+      <div class="totals">
+        <table>
+          <tbody>
+            <tr><td class="lbl">Subtotal</td><td class="val" id="pv-subtotal">£0.00</td></tr>
+            <tr class="grand"><td class="lbl">Total</td><td class="val" id="pv-total">£0.00</td></tr>
+            <tr><td class="lbl">Paid</td><td class="val" id="pv-paid-amount">£0.00</td></tr>
+            <tr class="due"><td class="lbl">Balance due</td><td class="val" id="pv-due">£0.00</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="sheet-foot">
+        <div class="note-block" id="pv-notes"></div>
+        <div class="vat-note" id="pv-vat-note"></div>
+        <div class="legal" id="pv-legal"></div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var SETTINGS_KEY = "simple-stripe-invoice:settings";
+  var SAVED_KEY    = "simple-stripe-invoice:saved";
+
+  var DEFAULT_VAT_NOTE =
+    "No VAT has been charged on this invoice. This business is not registered for VAT.";
+
+  // Company profiles live in settings (the ledger / localStorage), not in the
+  // source: this file carries no business identity of its own. A fresh install
+  // starts with one empty profile to fill in.
+  var DEFAULT_PROFILE_KEY = "my-business";
+
+  var activeProfile = DEFAULT_PROFILE_KEY;
+
+  // Fields that belong to the business, persisted across all invoices.
+  var SETTINGS_FIELDS = [
+    "f-from-name", "f-from-addr", "f-from-email", "f-from-phone",
+    "f-from-company-no", "f-vat-note", "f-footer", "f-currency", "f-prefix"
+  ];
+
+  // Fields that belong to one invoice.
+  var INVOICE_FIELDS = [
+    "f-number", "f-currency", "f-date", "f-paid-date",
+    "f-to-name", "f-to-addr", "f-to-email",
+    "f-pay-method", "f-pay-ref", "f-notes"
+  ];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var logoData = "";
+
+  /* ---------------- storage helpers ---------------- */
+
+  // When the Bun server is running (./serve.sh), the ledger on disk
+  // (data/store.json) is the source of truth: both keys are loaded into CACHE
+  // at boot and every write is pushed back to the server. localStorage remains
+  // as an offline fallback for double-clicking index.html directly.
+  var CACHE = {};
+  var SERVER = false;
+
+  function readJSON(key, fallback) {
+    if (CACHE[key] !== undefined && CACHE[key] !== null) return CACHE[key];
+    try {
+      var raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) {
+      // Corrupt or unavailable storage should not break the page.
+      console.warn("Could not read " + key, e);
+      return fallback;
+    }
+  }
+
+  var warnedAboutStorage = false;
+  var warnedAboutServer = false;
+
+  function writeJSON(key, value) {
+    CACHE[key] = value;
+
+    var storedLocally = false;
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+      storedLocally = true;
+    } catch (e) {
+      console.warn("Could not write " + key, e);
+    }
+
+    if (SERVER) {
+      var short = key === SAVED_KEY ? "saved" : "settings";
+      fetch("/api/kv/" + short, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(value)
+      }).then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+      }).catch(function (e) {
+        console.warn("Could not save " + short + " to the ledger", e);
+        if (!warnedAboutServer) {
+          warnedAboutServer = true;
+          alert("Saving to the ledger failed; the server may have stopped. " +
+                "Your work is only in this browser until it is back.");
+        }
+      });
+      return true;
+    }
+
+    if (!storedLocally && !warnedAboutStorage) {
+      // Storage can be full, or blocked entirely (some browsers block it on file:// URLs).
+      warnedAboutStorage = true;
+      alert("This browser will not let the page save data, so your details and saved " +
+            "invoices will not persist. Everything else still works. " +
+            "Run ./serve.sh and use the localhost address to enable saving.");
+    }
+    return storedLocally;
+  }
+
+  /* ---------------- formatting ---------------- */
+
+  function money(amount) {
+    var currency = $("f-currency").value || "GBP";
+    return new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency: currency
+    }).format(isFinite(amount) ? amount : 0);
+  }
+
+  function longDate(iso) {
+    if (!iso) return "";
+    var parts = iso.split("-");
+    var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  }
+
+  function todayISO() {
+    var d = new Date();
+    var m = String(d.getMonth() + 1).padStart(2, "0");
+    var day = String(d.getDate()).padStart(2, "0");
+    return d.getFullYear() + "-" + m + "-" + day;
+  }
+
+  /* ---------------- line items ---------------- */
+
+  function addItem(item) {
+    item = item || { desc: "", qty: 1, price: "" };
+    var row = document.createElement("div");
+    row.className = "item";
+    row.innerHTML =
+      '<input class="i-desc" placeholder="Description of goods or services">' +
+      '<input class="i-qty" type="number" min="0" step="any" value="1">' +
+      '<input class="i-price" type="number" min="0" step="0.01" placeholder="0.00">' +
+      '<button class="tiny i-del" title="Remove line">&times;</button>';
+    row.querySelector(".i-desc").value = item.desc || "";
+    row.querySelector(".i-qty").value = item.qty === undefined ? 1 : item.qty;
+    row.querySelector(".i-price").value = item.price === undefined ? "" : item.price;
+    row.querySelector(".i-del").addEventListener("click", function () {
+      row.remove();
+      if (!$("items").children.length) addItem();
+      render();
+    });
+    $("items").appendChild(row);
+  }
+
+  function getItems() {
+    return Array.prototype.map.call($("items").children, function (row) {
+      return {
+        desc: row.querySelector(".i-desc").value,
+        qty: row.querySelector(".i-qty").value,
+        price: row.querySelector(".i-price").value
+      };
+    });
+  }
+
+  function setItems(items) {
+    $("items").innerHTML = "";
+    if (!items || !items.length) { addItem(); return; }
+    items.forEach(addItem);
+  }
+
+  /* ---------------- preview ---------------- */
+
+  function setText(id, value) { $(id).textContent = value || ""; }
+
+  function render() {
+    // Header, your business
+    setText("pv-from-name", $("f-from-name").value || "Your business name");
+    setText("pv-from-addr", $("f-from-addr").value);
+
+    var contact = [];
+    if ($("f-from-email").value) contact.push($("f-from-email").value);
+    if ($("f-from-phone").value) contact.push($("f-from-phone").value);
+    setText("pv-from-contact", contact.join("  ·  "));
+
+    var logo = $("pv-logo");
+    logo.hidden = !logoData;
+    if (logoData) logo.src = logoData;
+    // A logo usually carries the wordmark, so printing the name again just
+    // duplicates it. Show the text name only when there is no logo.
+    $("pv-from-name").hidden = !!logoData;
+
+    // Customer
+    setText("pv-to-name", $("f-to-name").value || "Customer");
+    setText("pv-to-addr", $("f-to-addr").value);
+    setText("pv-to-email", $("f-to-email").value);
+
+    // Dates and references, right of the customer block
+    var dates = [
+      ["Invoice number", $("f-number").value],
+      ["Invoice date", longDate($("f-date").value)],
+      ["Payment date", longDate($("f-paid-date").value)],
+      ["Paid by", $("f-pay-method").value],
+      ["Reference", $("f-pay-ref").value]
+    ];
+    $("pv-dates").innerHTML = "";
+    dates.forEach(function (pair) {
+      if (!pair[1]) return;
+      var div = document.createElement("div");
+      var b = document.createElement("b");
+      b.textContent = pair[0] + ": ";
+      div.appendChild(b);
+      div.appendChild(document.createTextNode(pair[1]));
+      $("pv-dates").appendChild(div);
+    });
+
+    // Items and totals
+    var body = $("pv-items");
+    body.innerHTML = "";
+    var subtotal = 0;
+    var rendered = 0;
+
+    getItems().forEach(function (item) {
+      var qty = parseFloat(item.qty);
+      var price = parseFloat(item.price);
+      if (!item.desc && !isFinite(price)) return;
+      if (!isFinite(qty)) qty = 1;
+      if (!isFinite(price)) price = 0;
+
+      var amount = qty * price;
+      subtotal += amount;
+      rendered++;
+
+      var tr = document.createElement("tr");
+
+      var tdDesc = document.createElement("td");
+      tdDesc.className = "desc";
+      tdDesc.textContent = item.desc || "Item";
+
+      var tdQty = document.createElement("td");
+      tdQty.className = "qty";
+      tdQty.textContent = String(qty);
+
+      var tdPrice = document.createElement("td");
+      tdPrice.className = "num";
+      tdPrice.textContent = money(price);
+
+      var tdAmount = document.createElement("td");
+      tdAmount.className = "num";
+      tdAmount.textContent = money(amount);
+
+      tr.appendChild(tdDesc);
+      tr.appendChild(tdQty);
+      tr.appendChild(tdPrice);
+      tr.appendChild(tdAmount);
+      body.appendChild(tr);
+    });
+
+    if (!rendered) {
+      var empty = document.createElement("tr");
+      empty.className = "empty-row";
+      var td = document.createElement("td");
+      td.colSpan = 4;
+      td.textContent = "Add a line item to see it here.";
+      empty.appendChild(td);
+      body.appendChild(empty);
+    }
+
+    setText("pv-subtotal", money(subtotal));
+    setText("pv-total", money(subtotal));
+    setText("pv-paid-amount", "-" + money(subtotal));
+    setText("pv-due", money(0));
+
+    // Footer
+    setText("pv-notes", $("f-notes").value);
+    $("pv-vat-note").hidden = !$("f-vat-note").value;
+    setText("pv-vat-note", $("f-vat-note").value);
+
+    var legal = [];
+    if ($("f-footer").value) legal.push($("f-footer").value);
+    if ($("f-from-company-no").value) legal.push($("f-from-company-no").value);
+    setText("pv-legal", legal.join("\n"));
+
+    saveSettings();
+  }
+
+  /* ---------------- settings ---------------- */
+
+  function readSettings() {
+    var all = readJSON(SETTINGS_KEY, null);
+    // Anything not in the current shape is discarded rather than half-migrated.
+    if (!all || all.version !== 3 || !all.profiles) return null;
+    return all;
+  }
+
+  function saveSettings() {
+    var all = readSettings() || { version: 3, active: activeProfile, profiles: {} };
+    var entry = { logo: logoData };
+    SETTINGS_FIELDS.forEach(function (id) { entry[id] = $(id).value; });
+    all.profiles[activeProfile] = entry;
+    all.active = activeProfile;
+    writeJSON(SETTINGS_KEY, all);
+    refreshProfileList();
+  }
+
+  function showLogo(data) {
+    logoData = data || "";
+    $("logo-preview").src = logoData;
+    $("logo-preview").hidden = !logoData;
+    $("btn-logo-clear").hidden = !logoData;
+  }
+
+  function profileLabel(key, entry) {
+    return (entry && entry["f-from-name"]) ? entry["f-from-name"] : key;
+  }
+
+  // Rebuild the company dropdown from whatever profiles exist in settings.
+  function refreshProfileList() {
+    var all = readSettings();
+    var profiles = (all && all.profiles) || {};
+    var keys = Object.keys(profiles);
+    if (keys.indexOf(activeProfile) === -1) keys.push(activeProfile);
+
+    var select = $("f-profile");
+    select.innerHTML = "";
+    keys.forEach(function (key) {
+      var opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = profileLabel(key, profiles[key]);
+      select.appendChild(opt);
+    });
+    var add = document.createElement("option");
+    add.value = "__new";
+    add.textContent = "+ Add a company…";
+    select.appendChild(add);
+    select.value = activeProfile;
+  }
+
+  // Fill the business fields from a stored profile. An unknown key gives a
+  // blank profile, which becomes real on the first save.
+  function applyProfile(key) {
+    var all = readSettings();
+    var profiles = (all && all.profiles) || {};
+    activeProfile = profiles[key] ? key : (key || Object.keys(profiles)[0] || DEFAULT_PROFILE_KEY);
+    var stored = profiles[activeProfile] || null;
+
+    SETTINGS_FIELDS.forEach(function (id) {
+      if (stored && stored[id] !== undefined) $(id).value = stored[id];
+      else if (id === "f-currency") $(id).value = "GBP";
+      else if (id === "f-prefix") $(id).value = "INV-";
+      else $(id).value = "";
+    });
+
+    if (!$("f-vat-note").value) $("f-vat-note").value = DEFAULT_VAT_NOTE;
+    showLogo(stored && stored.logo !== undefined ? stored.logo : "");
+    refreshProfileList();
+  }
+
+  function loadSettings() {
+    var all = readSettings();
+    applyProfile(all ? all.active : DEFAULT_PROFILE_KEY);
+  }
+
+  /* ---------------- saved invoices ---------------- */
+
+  function currentInvoice() {
+    var inv = { items: getItems(), profile: activeProfile };
+    INVOICE_FIELDS.forEach(function (id) { inv[id] = $(id).value; });
+    return inv;
+  }
+
+  function refreshSavedList(selectedId) {
+    var saved = readJSON(SAVED_KEY, []);
+    var select = $("saved-select");
+    select.innerHTML = "";
+
+    var placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = saved.length ? "Load a saved invoice..." : "Nothing saved yet";
+    select.appendChild(placeholder);
+
+    saved.slice().reverse().forEach(function (inv) {
+      var opt = document.createElement("option");
+      opt.value = inv.id;
+      opt.textContent = (inv["f-number"] || "No number") + " - " + (inv["f-to-name"] || "No customer");
+      select.appendChild(opt);
+    });
+
+    select.value = selectedId || "";
+  }
+
+  function saveInvoice() {
+    var saved = readJSON(SAVED_KEY, []);
+    var inv = currentInvoice();
+    var number = (inv["f-number"] || "").trim();
+
+    if (!number) {
+      alert("Give the invoice a number before saving.");
+      $("f-number").focus();
+      return;
+    }
+
+    // One record per company and invoice number, so re-saving overwrites rather than duplicates.
+    var existing = saved.filter(function (s) {
+      return s["f-number"] === number && (s.profile || DEFAULT_PROFILE_KEY) === activeProfile;
+    })[0];
+    inv.id = existing ? existing.id : "inv-" + activeProfile + "-" + number + "-" + saved.length;
+    if (existing) {
+      saved[saved.indexOf(existing)] = inv;
+    } else {
+      saved.push(inv);
+    }
+
+    if (writeJSON(SAVED_KEY, saved)) {
+      refreshSavedList(inv.id);
+      flash($("btn-save"), "Saved");
+    }
+  }
+
+  function loadInvoice(id) {
+    var saved = readJSON(SAVED_KEY, []);
+    var inv = saved.filter(function (s) { return s.id === id; })[0];
+    if (!inv) return;
+    // Restore the company this invoice was issued under before its own fields.
+    applyProfile(inv.profile || DEFAULT_PROFILE_KEY);
+    INVOICE_FIELDS.forEach(function (f) {
+      if (inv[f] !== undefined) $(f).value = inv[f];
+    });
+    setItems(inv.items);
+    render();
+  }
+
+  function deleteInvoice() {
+    var id = $("saved-select").value;
+    if (!id) return;
+    var saved = readJSON(SAVED_KEY, []);
+    var inv = saved.filter(function (s) { return s.id === id; })[0];
+    if (!inv) return;
+    if (!confirm("Delete invoice " + (inv["f-number"] || "") + "?")) return;
+    writeJSON(SAVED_KEY, saved.filter(function (s) { return s.id !== id; }));
+    refreshSavedList();
+  }
+
+  /* ---------------- new invoice ---------------- */
+
+  function nextNumber() {
+    var prefix = $("f-prefix").value || "INV-";
+    var saved = readJSON(SAVED_KEY, []).filter(function (s) {
+      return (s.profile || DEFAULT_PROFILE_KEY) === activeProfile;
+    });
+
+    // Each company runs its own sequence. Carry on from what is on screen if it
+    // belongs to this company, otherwise from the last one saved.
+    var current = $("f-number").value;
+    var last = (current && current.indexOf(prefix) === 0) ? current
+             : (saved.length ? saved[saved.length - 1]["f-number"] : "");
+
+    // Increment the trailing digits and keep the padding, e.g. INV-0007 -> INV-0008.
+    var match = /^(.*?)(\d+)$/.exec(last || "");
+    if (!match) return prefix + "0001";
+    var next = String(Number(match[2]) + 1).padStart(match[2].length, "0");
+    return match[1] + next;
+  }
+
+  function newInvoice() {
+    var number = nextNumber();
+    INVOICE_FIELDS.forEach(function (id) {
+      if (id === "f-currency") return; // currency is a business setting
+      $(id).value = "";
+    });
+    $("f-number").value = number;
+    $("f-date").value = todayISO();
+    $("f-paid-date").value = todayISO();
+    setItems(null);
+    $("saved-select").value = "";
+    render();
+    $("f-to-name").focus();
+  }
+
+  /* ---------------- misc ---------------- */
+
+  function flash(button, message) {
+    var original = button.textContent;
+    button.textContent = message;
+    setTimeout(function () { button.textContent = original; }, 1200);
+  }
+
+  function exportPDF() {
+    // The browser names the PDF after the document title.
+    var original = document.title;
+    var number = ($("f-number").value || "invoice").replace(/[^\w.-]+/g, "-");
+    var customer = ($("f-to-name").value || "").replace(/[^\w.-]+/g, "-");
+    document.title = "Invoice-" + number + (customer ? "-" + customer : "");
+    window.print();
+    setTimeout(function () { document.title = original; }, 500);
+  }
+
+  function handleLogo(file) {
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      showLogo(String(reader.result));
+      render();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  /* ---------------- Stripe pull ---------------- */
+
+  function pullFromStripe() {
+    var q = $("f-stripe-q").value.trim();
+    var status = $("stripe-pull-status");
+    if (!q) { status.textContent = "Paste a receipt number or Stripe id first."; return; }
+    status.textContent = "Looking up...";
+
+    fetch("/api/stripe/lookup?q=" + encodeURIComponent(q))
+      .then(function (r) {
+        return r.json().then(function (body) {
+          if (!r.ok) throw new Error(body.error || "Lookup failed (HTTP " + r.status + ")");
+          return body;
+        });
+      })
+      .then(function (res) {
+        if (res.name) $("f-to-name").value = res.name;
+        if (res.address) $("f-to-addr").value = res.address;
+        if (res.email) $("f-to-email").value = res.email;
+        if (res.paidDate) $("f-paid-date").value = res.paidDate;
+        $("f-pay-method").value = "Card via Stripe";
+        if (res.receiptNumber) $("f-pay-ref").value = res.receiptNumber;
+        // Only currencies the dropdown knows; anything else stays as-is.
+        if (res.currency && $("f-currency").querySelector('option[value="' + res.currency + '"]')) {
+          $("f-currency").value = res.currency;
+        }
+        if (res.items && res.items.length) setItems(res.items);
+        status.textContent = "Pulled from the " + res.account + " account. Check every field before exporting.";
+        render();
+      })
+      .catch(function (e) {
+        status.textContent = e.message;
+      });
+  }
+
+  /* ---------------- wiring ---------------- */
+
+  document.addEventListener("input", render);
+  document.addEventListener("change", render);
+
+  $("btn-add-item").addEventListener("click", function () { addItem(); render(); });
+  $("btn-pdf").addEventListener("click", exportPDF);
+  $("btn-save").addEventListener("click", saveInvoice);
+  $("btn-new").addEventListener("click", newInvoice);
+  $("btn-delete").addEventListener("click", deleteInvoice);
+  $("saved-select").addEventListener("change", function () {
+    if (this.value) loadInvoice(this.value);
+  });
+  $("f-profile").addEventListener("change", function () {
+    if (this.value === "__new") {
+      var name = (prompt("Name for the new company:") || "").trim();
+      if (!name) { refreshProfileList(); return; }
+      // The key is a slug of the name; the dropdown shows the business name.
+      var key = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || DEFAULT_PROFILE_KEY;
+      applyProfile(key);
+      $("f-from-name").value = name;
+    } else {
+      applyProfile(this.value);
+    }
+    // Switching company means a different invoice sequence.
+    $("f-number").value = "";
+    $("f-number").value = nextNumber();
+    render();
+  });
+  $("f-logo").addEventListener("change", function () { handleLogo(this.files[0]); });
+  $("btn-logo-clear").addEventListener("click", function () {
+    $("f-logo").value = "";
+    showLogo("");
+    render();
+  });
+  $("btn-stripe-pull").addEventListener("click", pullFromStripe);
+  $("f-stripe-q").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); pullFromStripe(); }
+  });
+
+  // Ctrl/Cmd+P should export rather than print the whole editor UI.
+  document.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") {
+      e.preventDefault();
+      exportPDF();
+    }
+  });
+
+  /* ---------------- boot ---------------- */
+
+  function boot() {
+    loadSettings();
+    refreshSavedList();
+    $("f-date").value = todayISO();
+    $("f-paid-date").value = todayISO();
+    if (!$("f-number").value) $("f-number").value = nextNumber();
+    if (!$("f-pay-method").value) $("f-pay-method").value = "Card via Stripe";
+    setItems(null);
+    render();
+  }
+
+  // Try the ledger server first; fall back to localStorage when the page is
+  // opened directly from disk. Boot either way.
+  fetch("/api/kv")
+    .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(function (data) {
+      SERVER = true;
+      CACHE[SETTINGS_KEY] = data.settings;
+      CACHE[SAVED_KEY] = data.saved;
+      $("stripe-pull").hidden = false;
+    })
+    .catch(function () { /* no server: plain localStorage mode */ })
+    .then(boot);
+})();
+</script>
+</body>
+</html>
