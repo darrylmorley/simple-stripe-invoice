@@ -616,16 +616,32 @@
   // Fields that belong to the business, persisted across all invoices.
   var SETTINGS_FIELDS = [
     "f-from-name", "f-from-addr", "f-from-email", "f-from-phone",
-    "f-from-company-no", "f-vat-note", "f-footer", "f-currency", "f-prefix",
-    "f-vat-registered", "f-vat-number", "f-vat-rate", "f-vat-inclusive"
+    "f-from-company-no", "f-vat-note", "f-footer", "f-currency", "f-prefix"
   ];
+
+  // VAT is a property of each ISSUED invoice, snapshotted into its record so
+  // a later change to the company's rate or registration can never silently
+  // rewrite an old invoice. The company profile keeps a copy purely as the
+  // default for new invoices, updated only when an invoice is saved (not on
+  // every keystroke, or loading an old invoice would clobber the defaults).
+  var VAT_FIELDS = ["f-vat-registered", "f-vat-number", "f-vat-rate", "f-vat-inclusive"];
 
   // Fields that belong to one invoice.
   var INVOICE_FIELDS = [
     "f-number", "f-currency", "f-date", "f-status", "f-due-date", "f-paid-date",
     "f-to-name", "f-to-addr", "f-to-email",
-    "f-pay-method", "f-pay-ref", "f-notes"
+    "f-pay-method", "f-pay-ref", "f-notes",
+    "f-vat-registered", "f-vat-number", "f-vat-rate", "f-vat-inclusive"
   ];
+
+  // What a field means when a saved record predates it: old records were paid
+  // receipts issued without VAT.
+  var INVOICE_FIELD_DEFAULTS = {
+    "f-status": "paid",
+    "f-currency": "GBP",
+    "f-vat-registered": "",
+    "f-vat-inclusive": "inc"
+  };
 
   var $ = function (id) { return document.getElementById(id); };
   var logoData = "";
@@ -816,10 +832,12 @@
       $("pv-dates").appendChild(div);
     });
 
-    // Items and totals
+    // Items and totals. All arithmetic happens in integer minor units
+    // (pence/cents), each line rounded once as it is summed, so the printed
+    // lines, subtotal, VAT and total always reconcile to the penny.
     var body = $("pv-items");
     body.innerHTML = "";
-    var subtotal = 0;
+    var subtotalC = 0;
     var rendered = 0;
 
     getItems().forEach(function (item) {
@@ -829,8 +847,9 @@
       if (!isFinite(qty)) qty = 1;
       if (!isFinite(price)) price = 0;
 
-      var amount = qty * price;
-      subtotal += amount;
+      var amountC = Math.round(qty * price * 100);
+      var amount = amountC / 100;
+      subtotalC += amountC;
       rendered++;
 
       var tr = document.createElement("tr");
@@ -874,28 +893,28 @@
     // display; exclusive prices mean VAT is added on top.
     var rate = parseFloat($("f-vat-rate").value);
     if (!isFinite(rate) || rate < 0) rate = 0;
-    var showVAT = vatOn && rate > 0 && subtotal > 0;
-    var total = subtotal, vatAmount = 0;
+    var showVAT = vatOn && rate > 0 && subtotalC > 0;
+    var totalC = subtotalC, vatC = 0;
 
     if (showVAT) {
       if ($("f-vat-inclusive").value === "ex") {
-        vatAmount = subtotal * rate / 100;
-        total = subtotal + vatAmount;
+        vatC = Math.round(subtotalC * rate / 100);
+        totalC = subtotalC + vatC;
         setText("pv-vat-lbl", "VAT (" + rate + "%)");
       } else {
-        vatAmount = subtotal - subtotal / (1 + rate / 100);
-        total = subtotal;
+        vatC = subtotalC - Math.round(subtotalC / (1 + rate / 100));
+        totalC = subtotalC;
         setText("pv-vat-lbl", "Includes VAT (" + rate + "%)");
       }
     }
 
     $("pv-vat-row").hidden = !showVAT;
-    setText("pv-vat", money(vatAmount));
-    setText("pv-subtotal", money(subtotal));
-    setText("pv-total", money(total));
+    setText("pv-vat", money(vatC / 100));
+    setText("pv-subtotal", money(subtotalC / 100));
+    setText("pv-total", money(totalC / 100));
     $("pv-paid-row").hidden = !paid;
-    setText("pv-paid-amount", "-" + money(total));
-    setText("pv-due", money(paid ? 0 : total));
+    setText("pv-paid-amount", "-" + money(totalC / 100));
+    setText("pv-due", money(paid ? 0 : totalC / 100));
     // Green "settled" styling only fits a zero balance.
     $("pv-due-row").className = paid ? "due" : "";
 
@@ -927,7 +946,10 @@
 
   function saveSettings() {
     var all = readSettings() || { version: 3, active: activeProfile, profiles: {} };
-    var entry = { logo: logoData };
+    // Merge into the existing entry: the profile also carries VAT defaults,
+    // written by saveInvoice rather than here, which must survive.
+    var entry = all.profiles[activeProfile] || {};
+    entry.logo = logoData;
     SETTINGS_FIELDS.forEach(function (id) { entry[id] = $(id).value; });
     all.profiles[activeProfile] = entry;
     all.active = activeProfile;
@@ -976,7 +998,7 @@
     activeProfile = profiles[key] ? key : (key || Object.keys(profiles)[0] || DEFAULT_PROFILE_KEY);
     var stored = profiles[activeProfile] || null;
 
-    SETTINGS_FIELDS.forEach(function (id) {
+    SETTINGS_FIELDS.concat(VAT_FIELDS).forEach(function (id) {
       if (stored && stored[id] !== undefined) $(id).value = stored[id];
       else if (id === "f-currency") $(id).value = "GBP";
       else if (id === "f-prefix") $(id).value = "INV-";
@@ -1033,6 +1055,14 @@
       return;
     }
 
+    // Saving an invoice is also the moment its VAT setup becomes the
+    // company's default for the next one.
+    var all = readSettings();
+    if (all && all.profiles[activeProfile]) {
+      VAT_FIELDS.forEach(function (id) { all.profiles[activeProfile][id] = $(id).value; });
+      writeJSON(SETTINGS_KEY, all);
+    }
+
     // One record per company and invoice number, so re-saving overwrites rather than duplicates.
     var existing = saved.filter(function (s) {
       return s["f-number"] === number && (s.profile || DEFAULT_PROFILE_KEY) === activeProfile;
@@ -1056,11 +1086,13 @@
     if (!inv) return;
     // Restore the company this invoice was issued under before its own fields.
     applyProfile(inv.profile || DEFAULT_PROFILE_KEY);
+    // Every invoice field is set from the record, with an explicit default
+    // when the record predates the field, so nothing from the previously
+    // shown invoice can bleed into this one.
     INVOICE_FIELDS.forEach(function (f) {
       if (inv[f] !== undefined) $(f).value = inv[f];
+      else $(f).value = INVOICE_FIELD_DEFAULTS[f] !== undefined ? INVOICE_FIELD_DEFAULTS[f] : "";
     });
-    // Invoices saved before the status field existed were all paid receipts.
-    if (inv["f-status"] === undefined) $("f-status").value = "paid";
     setItems(inv.items);
     render();
   }
@@ -1101,7 +1133,18 @@
     var number = nextNumber();
     INVOICE_FIELDS.forEach(function (id) {
       if (id === "f-currency") return; // currency is a business setting
+      if (VAT_FIELDS.indexOf(id) !== -1) return; // restored from profile below
       $(id).value = "";
+    });
+
+    // A fresh invoice starts from the company's VAT defaults, not from
+    // whatever snapshot the previously shown invoice carried.
+    var all = readSettings();
+    var stored = (all && all.profiles[activeProfile]) || null;
+    VAT_FIELDS.forEach(function (id) {
+      if (stored && stored[id] !== undefined) $(id).value = stored[id];
+      else if (id === "f-vat-inclusive") $(id).value = "inc";
+      else $(id).value = "";
     });
     $("f-number").value = number;
     $("f-date").value = todayISO();
@@ -1157,15 +1200,21 @@
         });
       })
       .then(function (res) {
-        if (res.name) $("f-to-name").value = res.name;
-        if (res.address) $("f-to-addr").value = res.address;
-        if (res.email) $("f-to-email").value = res.email;
+        // Overwrite the customer identity outright, empties included, so
+        // nothing of a previously shown customer survives the pull.
+        $("f-to-name").value = res.name || "";
+        $("f-to-addr").value = res.address || "";
+        $("f-to-email").value = res.email || "";
 
         if (res.kind === "customer") {
-          // Just the customer's details: this is a fresh invoice, so the
-          // status, dates and items stay whatever they were.
+          // A fresh invoice for this customer: whatever payment state was on
+          // screen belonged to someone else, so drop it. Items are left
+          // alone (they may have just been typed for this very invoice).
+          $("f-status").value = "unpaid";
+          $("f-paid-date").value = "";
+          $("f-pay-ref").value = "";
           status.textContent = "Customer from the " + res.account + " account"
-            + (res.matchCount > 1 ? " (first of " + res.matchCount + " matches; search by email to narrow down)" : "")
+            + (res.matchCount > 1 ? " (first of " + res.matchCount + (res.hasMore ? "+" : "") + " matches; search by email to narrow down)" : "")
             + ". Check every field before exporting.";
         } else {
           // A charge: the money has already been taken.

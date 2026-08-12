@@ -110,12 +110,24 @@ function formatAddress(source: any): string {
     .join("\n");
 }
 
+// Stripe's search grammar quotes values with single quotes and escapes with
+// backslashes, so both must be escaped: O'Connor searches as O'Connor, and a
+// trailing backslash can't de-escape our closing quote.
+function escapeSearchValue(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
 // Look up a customer by email (exact) or name (substring) for invoices that
 // have no payment yet.
-async function findCustomers(key: string, q: string): Promise<any[]> {
-  const query = q.includes("@") ? `email:'${q.replace(/'/g, "")}'` : `name~'${q.replace(/'/g, "")}'`;
+async function findCustomers(key: string, q: string): Promise<{ customers: any[]; hasMore: boolean }> {
+  const value = escapeSearchValue(q);
+  const query = q.includes("@") ? `email:'${value}'` : `name~'${value}'`;
   const r = await stripeGET(key, `/v1/customers/search?query=${encodeURIComponent(query)}&limit=5`);
-  return r.ok ? (r.body.data ?? []) : [];
+  if (!r.ok) {
+    console.error(`Customer search failed (${r.status}):`, r.body?.error?.message ?? r.body);
+    return { customers: [], hasMore: false };
+  }
+  return { customers: r.body.data ?? [], hasMore: !!r.body.has_more };
 }
 
 async function stripeLookup(q: string): Promise<Response> {
@@ -128,12 +140,14 @@ async function stripeLookup(q: string): Promise<Response> {
   // Payment-shaped queries (receipt number, pi_/ch_ id) resolve to a charge:
   // customer + items + the real payment date. Anything else (an email or a
   // name) resolves to a Stripe Customer, for raising a fresh invoice that has
-  // no payment behind it yet.
-  const isPaymentQuery = /^(pi|ch|py)_/.test(cleaned) || /^[\d-]+$/.test(cleaned);
+  // no payment behind it yet. An all-digits query that matches no charge
+  // falls through to the customer search, in case it was a numeric name.
+  const isStripeId = /^(pi|ch|py)_/.test(cleaned);
+  const isPaymentQuery = isStripeId || /^[\d-]+$/.test(cleaned);
 
-  for (const { account, key } of STRIPE_ACCOUNTS) {
-    try {
-      if (isPaymentQuery) {
+  if (isPaymentQuery) {
+    for (const { account, key } of STRIPE_ACCOUNTS) {
+      try {
         const charge = await findCharge(key, cleaned);
         if (!charge) continue;
         const items = await lineItems(key, charge).catch(() => null);
@@ -152,24 +166,33 @@ async function stripeLookup(q: string): Promise<Response> {
           amount,
           items: items ?? [{ desc: charge.description || "", qty: 1, price: amount }],
         });
+      } catch (e) {
+        console.error(`Stripe charge lookup failed on account ${account}:`, e);
       }
-
-      const customers = await findCustomers(key, cleaned);
-      if (!customers.length) continue;
-      const c = customers[0];
-      return json({
-        kind: "customer",
-        account,
-        matchCount: customers.length,
-        name: c.name || "",
-        email: c.email || "",
-        address: formatAddress(c) || formatAddress(c.shipping),
-      });
-    } catch (e) {
-      console.error(`Stripe lookup failed on account ${account}:`, e);
-      continue;
     }
   }
+
+  if (!isStripeId) {
+    for (const { account, key } of STRIPE_ACCOUNTS) {
+      try {
+        const { customers, hasMore } = await findCustomers(key, cleaned);
+        if (!customers.length) continue;
+        const c = customers[0];
+        return json({
+          kind: "customer",
+          account,
+          matchCount: customers.length,
+          hasMore,
+          name: c.name || "",
+          email: c.email || "",
+          address: formatAddress(c) || formatAddress(c.shipping),
+        });
+      } catch (e) {
+        console.error(`Stripe customer lookup failed on account ${account}:`, e);
+      }
+    }
+  }
+
   const hint = isPaymentQuery
     ? "Receipt numbers only cover the most recent ~300 charges per account; try the pi_/ch_ id from the Stripe dashboard."
     : "Customer search needs the exact email, or part of the name.";
