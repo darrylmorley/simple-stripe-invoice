@@ -1,24 +1,32 @@
 # Simple Stripe Invoice
 
-Invoicing for small and local businesses that take payments through Stripe.
-No subscription, no signup, no cloud. It runs on your own computer and your
-customer data stays there.
+A free invoicing tool for small and local businesses. Clean PDF invoices with
+your logo, your numbering and a due date, made in a couple of minutes on your
+own computer. No subscription, no signup, no cloud, and your customer data
+never leaves your machine.
 
-If you run a shop, a trade, a studio or a one-person software business, you
-have probably hit both of these:
+If you run a shop, a trade, a studio or a one-person business, you have
+probably hit both of these:
 
 - **You need to invoice someone for work.** A customer books a job, you want
   a clean PDF with your logo, an invoice number and a due date on it. Most
   tools that do this want a monthly fee for what is essentially one page.
+  This one is free and always will be (it's MIT licensed, the code is all
+  here).
 - **A customer asks for a proper receipt.** Stripe's emailed receipts don't
   show the customer's company name, so sooner or later a business customer
   asks for "an invoice with our details on it, for the tax office".
 
-This does both, in about two minutes each, and remembers your invoice
-numbering so the next invoice is always numbered correctly.
+This does both. Stripe is optional: without it you have a fast offline
+invoice maker that remembers your numbering, with it your customers and
+payments fill themselves in.
+
+![Example invoice](docs/invoice-example.png)
 
 ## What it does
 
+- Free, open source (MIT), self-hosted. Nothing to pay, nobody to trust with
+  your customer list
 - Clean A4 invoice with your business details and logo, exported to PDF
 - Unpaid invoices with a due date, or paid-in-full receipts for money already
   taken
